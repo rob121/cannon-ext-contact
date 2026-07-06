@@ -28,7 +28,7 @@ const (
 	extensionName        = "cannon-ext-contact"
 	extensionTitle       = "Contact Forms"
 	extensionDescription = "Adds configurable contact forms with JSON Forms schemas, page and block rendering, saved submissions, and optional Shoutrrr notifications."
-	extensionVersion     = "0.1.0"
+	extensionVersion     = "0.1.1"
 	updateURLBase        = "https://github.com/rob121/cannon-ext-contact/releases/download"
 	defaultAdminMenu     = "Contact Forms"
 	pageSize             = 10
