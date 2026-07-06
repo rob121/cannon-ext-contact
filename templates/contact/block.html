@@ -1,0 +1,25 @@
+<section class="contact-block card" data-contact-form-id="{{.Form.ID}}" data-contact-block-space="{{.Space}}">
+  <div class="card-body">
+    <h2 class="card-title h4 mb-3">{{.Form.Name}}</h2>
+    {{if .Form.Introduction}}<p class="card-text text-muted mb-4">{{.Form.Introduction}}</p>{{end}}
+    <form method="post" action="{{.ActionURL}}" class="contact-form">
+      {{.CSRFField}}
+      <input type="hidden" name="form_id" value="{{.Form.ID}}">
+      <input type="hidden" name="return_url" value="{{.ReturnURL}}">
+      {{range .Fields}}
+      <div class="mb-3 contact-form-field">
+        <label class="form-label" for="contact-{{$.Form.ID}}-{{.Name}}">{{.Label}}</label>
+        {{if .Textarea}}
+        <textarea class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" rows="5" {{if .Required}}required{{end}}></textarea>
+        {{else}}
+        <input class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" type="{{.Type}}" {{if .Required}}required{{end}}>
+        {{end}}
+      </div>
+      {{end}}
+      <div class="mb-3 contact-form-captcha">
+        <captcha context="form" provider="any"></captcha>
+      </div>
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+  </div>
+</section>

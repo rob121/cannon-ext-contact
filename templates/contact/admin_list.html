@@ -1,0 +1,210 @@
+{{if .Notice}}<div class="admin-alert admin-alert-success">{{.Notice}}</div>{{end}}
+
+<div class="contact-extension-header">
+  <div class="admin-page-actions">
+    <a class="btn-admin-outline" href="{{.SettingsURL}}" data-turbo-frame="_top">
+      <i class="bi bi-sliders"></i> Settings
+    </a>
+    <a class="btn-admin-primary" href="{{.PageActionURL}}" data-turbo-frame="_top">
+      <i class="bi bi-plus-lg"></i> {{.PageActionLabel}}
+    </a>
+  </div>
+</div>
+
+<div class="contact-admin-summary">
+  <div class="contact-admin-summary-card">
+    <div class="contact-admin-summary-icon"><i class="bi bi-ui-checks-grid"></i></div>
+    <div class="contact-admin-summary-content">
+      <span class="contact-admin-summary-label">Contact Forms</span>
+      <strong>{{.Total}}</strong>
+      <span class="admin-cell-muted">Configured form definitions</span>
+    </div>
+  </div>
+  <div class="contact-admin-summary-card">
+    <div class="contact-admin-summary-icon"><i class="bi bi-toggle-on"></i></div>
+    <div class="contact-admin-summary-content">
+      <span class="contact-admin-summary-label">Active Forms</span>
+      <strong>{{.ActiveTotal}}</strong>
+      <span class="admin-cell-muted">Available for pages and blocks</span>
+    </div>
+  </div>
+  <div class="contact-admin-summary-card">
+    <div class="contact-admin-summary-icon"><i class="bi bi-inbox"></i></div>
+    <div class="contact-admin-summary-content">
+      <span class="contact-admin-summary-label">Saved Entries</span>
+      <strong>{{.EntryTotal}}</strong>
+      <span class="admin-cell-muted">Stored submissions</span>
+    </div>
+  </div>
+</div>
+
+<div class="admin-data-card">
+  <div class="admin-data-card-header contact-admin-card-header">
+    <div class="admin-data-card-summary-main">
+      <h2 class="admin-data-card-title">Contact Forms</h2>
+      <p class="admin-data-card-desc">Manage public form definitions, routing targets, and entry storage.</p>
+    </div>
+    <a class="btn-admin-outline btn-admin-sm" href="{{.PageActionURL}}" data-turbo-frame="_top">Add Form</a>
+  </div>
+  <div class="admin-table-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Mail To</th>
+          <th>Status</th>
+          <th>Updated</th>
+          <th class="admin-col-actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td><span class="admin-cell-primary">{{.Name}}</span></td>
+          <td>{{.MailTo}}</td>
+          <td>
+            {{if eq .Status "active"}}
+            <span class="admin-badge admin-badge-active"><span class="admin-badge-dot"></span>Active</span>
+            {{else}}
+            <span class="admin-badge admin-badge-inactive"><span class="admin-badge-dot"></span>Inactive</span>
+            {{end}}
+          </td>
+          <td>{{.UpdatedAt.Format "2006-01-02 15:04"}}</td>
+          <td class="admin-col-actions">
+            <div class="admin-row-actions">
+              <a class="btn-admin-icon" href="{{$.BasePath}}/{{.ID}}" data-turbo-frame="_top" title="Edit">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{{$.BasePath}}/{{.ID}}/delete" class="admin-inline-form" onsubmit="return confirm('Delete this contact form and its entries?')">
+                {{$.CSRFField}}
+                <button type="submit" class="btn-admin-icon btn-admin-icon-danger" title="Delete">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{else}}
+        <tr>
+          <td colspan="5" class="admin-table-empty-cell">
+            <div class="admin-empty-state">
+              <div class="admin-empty-state-icon"><i class="bi bi-ui-checks"></i></div>
+              <div class="admin-empty-state-title">No contact forms yet</div>
+              <p class="admin-empty-state-desc">Create a form definition, then attach it to a page route or extension block.</p>
+              <div class="admin-empty-state-action">
+                <a class="btn-admin-primary btn-admin-sm" href="{{.PageActionURL}}" data-turbo-frame="_top"><i class="bi bi-plus-lg"></i> Add Form</a>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if .Total}}
+  <div class="admin-pagination">
+    <span class="admin-pagination-summary">
+      Showing
+      <strong>{{add (mul (sub .Page 1) .PageSize) 1}}</strong>–<strong>{{if lt (mul .Page .PageSize) .Total}}{{mul .Page .PageSize}}{{else}}{{.Total}}{{end}}</strong>
+      of <strong>{{.Total}}</strong> results
+    </span>
+    <div class="admin-pagination-actions">
+      {{if gt .Page 1}}
+      <a class="btn-admin-ghost btn-admin-sm" href="{{.BasePath}}?page={{sub .Page 1}}" data-turbo-frame="_top">Previous</a>
+      {{else}}
+      <span class="btn-admin-ghost btn-admin-sm disabled">Previous</span>
+      {{end}}
+      <span class="admin-pagination-pages">
+        <span class="admin-pagination-page active">{{.Page}}</span>
+        <span class="admin-pagination-sep">/</span>
+        <span class="admin-pagination-total">{{pageCount .Total .PageSize}}</span>
+      </span>
+      {{if lt (mul .Page .PageSize) .Total}}
+      <a class="btn-admin-ghost btn-admin-sm" href="{{.BasePath}}?page={{add .Page 1}}" data-turbo-frame="_top">Next</a>
+      {{else}}
+      <span class="btn-admin-ghost btn-admin-sm disabled">Next</span>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+
+<style>
+  .admin-extension-app .contact-extension-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+  }
+
+  .admin-extension-app .contact-admin-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .admin-extension-app .contact-admin-summary-card {
+    display: flex;
+    gap: 0.875rem;
+    align-items: center;
+    padding: 1rem;
+    border: 1px solid var(--admin-border);
+    border-radius: var(--admin-radius-lg);
+    background: var(--admin-card);
+    box-shadow: var(--admin-shadow-xs);
+  }
+
+  .admin-extension-app .contact-admin-summary-icon {
+    display: inline-flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.625rem;
+    color: var(--admin-primary);
+    background: rgba(37, 99, 235, 0.08);
+    flex: 0 0 auto;
+  }
+
+  .admin-extension-app .contact-admin-summary-content {
+    min-width: 0;
+    display: grid;
+    gap: 0.1rem;
+  }
+
+  .admin-extension-app .contact-admin-summary-content strong {
+    font-size: 1.15rem;
+    font-weight: 650;
+    color: var(--admin-foreground);
+  }
+
+  .admin-extension-app .contact-admin-summary-label {
+    font-size: 0.75rem;
+    font-weight: 650;
+    color: #52525b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .admin-extension-app .contact-admin-card-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  @media (max-width: 900px) {
+    .admin-extension-app .contact-admin-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .admin-extension-app .contact-extension-header,
+    .admin-extension-app .contact-admin-card-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+  }
+</style>

@@ -1,0 +1,56 @@
+<div class="admin-form-card">
+  <div class="admin-form-card-header">
+    <div class="admin-form-card-heading">
+      <h2 class="admin-form-card-title">{{.Title}}</h2>
+      <p class="admin-form-card-desc">JSON Forms uses a data schema and UI schema to render the public form.</p>
+    </div>
+  </div>
+  <div class="admin-form-card-body">
+    {{if .Error}}<div class="admin-alert admin-alert-error">{{.Error}}</div>{{end}}
+    <form method="post" action="{{.ActionURL}}">
+      {{.CSRFField}}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="admin-form-label">Form Name</label>
+          <input class="admin-form-control" name="name" value="{{.Row.Name}}" required>
+        </div>
+        <div class="col-md-6">
+          <label class="admin-form-label">Mail To</label>
+          <input class="admin-form-control" type="email" name="mail_to" value="{{.Row.MailTo}}" required>
+          <p class="admin-form-help">Submissions will be delivered to this address.</p>
+        </div>
+        <div class="col-md-4">
+          <label class="admin-form-label">Status</label>
+          <select class="admin-form-control" name="status">
+            <option value="active" {{if eq .Row.Status "active"}}selected{{end}}>Active</option>
+            <option value="inactive" {{if eq .Row.Status "inactive"}}selected{{end}}>Inactive</option>
+          </select>
+        </div>
+        <div class="col-md-12">
+          <label class="admin-form-label">Introduction</label>
+          <textarea class="admin-form-control" name="introduction" rows="4">{{.Row.Introduction}}</textarea>
+        </div>
+        <div class="col-md-12"><div class="admin-form-divider"></div></div>
+        <div class="col-md-12">
+          <p class="admin-form-help">
+            <a class="admin-help-article-link" href="https://jsonforms.io/docs/" target="_blank" rel="noopener noreferrer">Learn how JSON Forms schemas work</a>
+          </p>
+        </div>
+        <div class="col-md-6">
+          <label class="admin-form-label">JSON Schema</label>
+          <textarea class="admin-form-control" name="schema_json" rows="18" spellcheck="false">{{.Row.SchemaJSON}}</textarea>
+          <p class="admin-form-help">Defines the form data fields, types, and required properties.</p>
+        </div>
+        <div class="col-md-6">
+          <label class="admin-form-label">UI Schema</label>
+          <textarea class="admin-form-control" name="ui_schema_json" rows="18" spellcheck="false">{{.Row.UISchemaJSON}}</textarea>
+          <p class="admin-form-help">Defines controls, layout, labels, and display options.</p>
+        </div>
+      </div>
+      <div class="admin-form-actions">
+        <button type="submit" class="btn-admin-primary">Save</button>
+        <a class="btn-admin-outline" href="{{.CancelURL}}" data-turbo-frame="_top">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
