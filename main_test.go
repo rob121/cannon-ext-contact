@@ -440,6 +440,89 @@ func TestSubmitDataRouteStoresEntryAndRedirects(t *testing.T) {
 	}
 }
 
+func TestSubmitValidatesSchemaFields(t *testing.T) {
+	setupExtensionDB(t)
+	server := newServer().Handler()
+	postWire(t, server, "/install", extension.WireRequest{Method: http.MethodPost, URL: "/install", SiteID: "example"})
+
+	db, _, err := extension.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := contactForm{
+		Name:   "Validated",
+		MailTo: "support@example.com",
+		Status: "active",
+		SchemaJSON: `{
+		  "type": "object",
+		  "properties": {
+		    "email": {"type": "string", "format": "email"},
+		    "section": {"type": "string", "enum": ["Section 1", "Section 2"]},
+		    "count": {"type": "integer"},
+		    "subscribe": {"type": "boolean"}
+		  },
+		  "required": ["email", "section", "subscribe"]
+		}`,
+		UISchemaJSON: `{
+		  "type": "VerticalLayout",
+		  "elements": [
+		    {"type": "Control", "scope": "#/properties/email"},
+		    {"type": "Control", "scope": "#/properties/section"},
+		    {"type": "Control", "scope": "#/properties/count"},
+		    {"type": "Control", "scope": "#/properties/subscribe"}
+		  ]
+		}`,
+	}
+	if err := db.Table("contact_forms").Create(&form).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	values := url.Values{}
+	values.Set("form_id", fmt.Sprint(form.ID))
+	values.Set("email", "not-an-email")
+	values.Set("section", "Bogus")
+	values.Set("count", "3.5")
+	resp := postWire(t, server, "/endpoint/submit", extension.WireRequest{
+		Method:       http.MethodPost,
+		URL:          "/contact/submit",
+		Body:         values.Encode(),
+		SiteID:       "example",
+		EndpointItem: "submit",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected validation status %d, got %+v", http.StatusBadRequest, resp)
+	}
+
+	values.Set("email", "jane@example.com")
+	values.Set("section", "Section 2")
+	values.Set("count", "3")
+	values.Set("subscribe", "true")
+	values.Set("unexpected", "ignore me")
+	resp = postWire(t, server, "/endpoint/submit", extension.WireRequest{
+		Method:       http.MethodPost,
+		URL:          "/contact/submit",
+		Body:         values.Encode(),
+		SiteID:       "example",
+		EndpointItem: "submit",
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected success redirect, got %+v", resp)
+	}
+
+	var entry contactEntry
+	if err := db.Table("contact_entries").First(&entry).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"email":"jane@example.com"`, `"section":"Section 2"`, `"count":3`, `"subscribe":true`} {
+		if !strings.Contains(entry.DataJSON, want) {
+			t.Fatalf("expected entry data to contain %q, got %q", want, entry.DataJSON)
+		}
+	}
+	if strings.Contains(entry.DataJSON, "unexpected") {
+		t.Fatalf("entry data should not store unknown fields, got %q", entry.DataJSON)
+	}
+}
+
 func TestBlockList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/block", nil)
 	rec := httptest.NewRecorder()
@@ -659,6 +742,141 @@ func TestAdminRejectsInvalidJSON(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body, `name="_csrf" value="admin-token"`) {
 		t.Fatalf("expected admin validation form to include csrf field, got %q", resp.Body)
+	}
+}
+
+func TestContactFieldsUseUISchemaOrderAndStringEnums(t *testing.T) {
+	form := contactForm{
+		SchemaJSON: `{
+		  "type": "object",
+		  "properties": {
+		    "name": {"type": "string"},
+		    "email": {"type": "string", "format": "email"},
+		    "city": {"type": "string"},
+		    "section": {"type": "string", "enum": ["Section 1", "Section 2", "Section 3", "Section 4"]},
+		    "message": {"type": "string", "description": "Tell us what you need."}
+		  },
+		  "required": ["name", "email", "city", "message"]
+		}`,
+		UISchemaJSON: `{
+		  "type": "VerticalLayout",
+		  "elements": [
+		    {"type": "Control", "scope": "#/properties/name"},
+		    {"type": "Control", "scope": "#/properties/email"},
+		    {"type": "Control", "scope": "#/properties/city"},
+		    {"type": "Control", "scope": "#/properties/section"},
+		    {"type": "Control", "scope": "#/properties/message", "options": {"multi": true}}
+		  ]
+		}`,
+	}
+
+	fields := contactFields(form)
+	if len(fields) != 5 {
+		t.Fatalf("fields len = %d, want 5: %#v", len(fields), fields)
+	}
+	wantOrder := []string{"name", "email", "city", "section", "message"}
+	for i, want := range wantOrder {
+		if fields[i].Name != want {
+			t.Fatalf("field %d = %q, want %q; fields=%#v", i, fields[i].Name, want, fields)
+		}
+	}
+	if !fields[3].Select || len(fields[3].Options) != 4 || fields[3].Options[0].Value != "Section 1" {
+		t.Fatalf("section field not rendered as enum select: %#v", fields[3])
+	}
+	if !fields[4].Textarea {
+		t.Fatalf("message field should be textarea: %#v", fields[4])
+	}
+	if fields[4].Help != "Tell us what you need." {
+		t.Fatalf("message help = %q", fields[4].Help)
+	}
+}
+
+func TestContactFieldsSupportBasicSchemaTypesAndOptions(t *testing.T) {
+	form := contactForm{
+		SchemaJSON: `{
+		  "type": "object",
+		  "properties": {
+		    "subscribe": {"type": "boolean", "title": "Subscribe"},
+		    "attendees": {"type": "integer"},
+		    "rating": {"type": "number"},
+		    "event_date": {"type": "string", "format": "date"},
+		    "choice": {"type": "string", "oneOf": [
+		      {"const": "a", "title": "Option A"},
+		      {"const": "b", "title": "Option B"}
+		    ]}
+		  },
+		  "required": ["subscribe"]
+		}`,
+		UISchemaJSON: `{
+		  "type": "VerticalLayout",
+		  "elements": [
+		    {"type": "Control", "scope": "#/properties/subscribe"},
+		    {"type": "Control", "scope": "#/properties/attendees"},
+		    {"type": "Control", "scope": "#/properties/rating"},
+		    {"type": "Control", "scope": "#/properties/event_date", "options": {"placeholder": "YYYY-MM-DD"}},
+		    {"type": "Control", "scope": "#/properties/choice", "label": "Choice Label"}
+		  ]
+		}`,
+	}
+
+	fields := contactFields(form)
+	if len(fields) != 5 {
+		t.Fatalf("fields len = %d, want 5: %#v", len(fields), fields)
+	}
+	if !fields[0].Boolean || fields[0].Type != "checkbox" || !fields[0].Required {
+		t.Fatalf("unexpected boolean field: %#v", fields[0])
+	}
+	if fields[1].Type != "number" || fields[1].Step != "1" {
+		t.Fatalf("unexpected integer field: %#v", fields[1])
+	}
+	if fields[2].Type != "number" || fields[2].Step != "any" {
+		t.Fatalf("unexpected number field: %#v", fields[2])
+	}
+	if fields[3].Type != "date" || fields[3].Placeholder != "YYYY-MM-DD" {
+		t.Fatalf("unexpected date field: %#v", fields[3])
+	}
+	if !fields[4].Select || fields[4].Label != "Choice Label" || fields[4].Options[0].Label != "Option A" {
+		t.Fatalf("unexpected oneOf select field: %#v", fields[4])
+	}
+}
+
+func TestContactFieldsUseSchemaDefaults(t *testing.T) {
+	form := contactForm{
+		SchemaJSON: `{
+		  "type": "object",
+		  "properties": {
+		    "name": {"type": "string", "default": "Ada"},
+		    "section": {"type": "string", "default": "Section 1", "enum": ["I don't know", "Section 1", "Section 2"]},
+		    "subscribe": {"type": "boolean", "default": true},
+		    "attendees": {"type": "integer", "default": 3}
+		  }
+		}`,
+		UISchemaJSON: `{
+		  "type": "VerticalLayout",
+		  "elements": [
+		    {"type": "Control", "scope": "#/properties/name"},
+		    {"type": "Control", "scope": "#/properties/section"},
+		    {"type": "Control", "scope": "#/properties/subscribe"},
+		    {"type": "Control", "scope": "#/properties/attendees"}
+		  ]
+		}`,
+	}
+
+	fields := contactFields(form)
+	if len(fields) != 4 {
+		t.Fatalf("fields len = %d, want 4: %#v", len(fields), fields)
+	}
+	if fields[0].Default != "Ada" {
+		t.Fatalf("name default = %q", fields[0].Default)
+	}
+	if !fields[1].Select || len(fields[1].Options) != 3 || !fields[1].Options[1].Selected {
+		t.Fatalf("section default option not selected: %#v", fields[1])
+	}
+	if !fields[2].Checked {
+		t.Fatalf("boolean default should be checked: %#v", fields[2])
+	}
+	if fields[3].Default != "3" {
+		t.Fatalf("integer default = %q", fields[3].Default)
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/mail"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -86,11 +86,27 @@ type contactSettings struct {
 }
 
 type contactField struct {
-	Name     string
+	Name        string
+	Label       string
+	Type        string
+	SchemaType  string
+	Default     string
+	Checked     bool
+	Textarea    bool
+	Select      bool
+	Boolean     bool
+	Options     []contactFieldOption
+	Required    bool
+	Readonly    bool
+	Placeholder string
+	Help        string
+	Step        string
+}
+
+type contactFieldOption struct {
+	Value    string
 	Label    string
-	Type     string
-	Textarea bool
-	Required bool
+	Selected bool
 }
 
 type schemaDocument struct {
@@ -99,13 +115,26 @@ type schemaDocument struct {
 }
 
 type schemaProperty struct {
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Format string `json:"format"`
+	Type        string         `json:"type"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Format      string         `json:"format"`
+	Default     any            `json:"default"`
+	Enum        []any          `json:"enum"`
+	OneOf       []schemaChoice `json:"oneOf"`
+	AnyOf       []schemaChoice `json:"anyOf"`
+	Const       any            `json:"const"`
+}
+
+type schemaChoice struct {
+	Const any    `json:"const"`
+	Title string `json:"title"`
 }
 
 type uiElement struct {
+	Type     string         `json:"type"`
 	Scope    string         `json:"scope"`
+	Label    any            `json:"label"`
 	Options  map[string]any `json:"options"`
 	Elements []uiElement    `json:"elements"`
 }
@@ -305,12 +334,9 @@ func (app *contactApp) submit(item string, req extension.WireRequest) extension.
 		return extension.Error(http.StatusNotFound, "contact form not found")
 	}
 
-	data := map[string]any{}
-	for key, vals := range values {
-		if key == "form_id" || key == "return_url" || key == "_csrf" || len(vals) == 0 {
-			continue
-		}
-		data[key] = vals[0]
+	data, err := validatedContactData(form, values)
+	if err != nil {
+		return extension.Error(http.StatusBadRequest, err.Error())
 	}
 	raw, err := json.Marshal(data)
 	if err != nil {
@@ -722,58 +748,295 @@ func contactFields(form contactForm) []contactField {
 	for _, name := range schema.Required {
 		required[name] = true
 	}
-	multi := multiControls(form.UISchemaJSON)
-
+	controls := uiControls(form.UISchemaJSON)
 	fields := make([]contactField, 0, len(schema.Properties))
-	for name, prop := range schema.Properties {
-		if prop.Type != "" && prop.Type != "string" {
+	seen := map[string]bool{}
+	for _, control := range controls {
+		name := propertyName(control.Scope)
+		if name == "" || seen[name] {
 			continue
 		}
-		inputType := "text"
-		if prop.Format == "email" {
-			inputType = "email"
+		prop, ok := schema.Properties[name]
+		if !ok {
+			continue
 		}
-		if prop.Format == "uri" {
-			inputType = "url"
+		options := control.Options
+		if _, ok := options["label"]; !ok && control.Label != nil {
+			options = copyOptions(options)
+			options["label"] = control.Label
 		}
-		fields = append(fields, contactField{
-			Name:     name,
-			Label:    fieldLabel(name, prop.Title),
-			Type:     inputType,
-			Textarea: multi[name],
-			Required: required[name],
-		})
+		if field, ok := buildContactField(name, prop, options, required[name]); ok {
+			fields = append(fields, field)
+			seen[name] = true
+		}
 	}
-	sort.Slice(fields, func(i, j int) bool {
-		return fields[i].Name < fields[j].Name
-	})
+	if len(controls) == 0 {
+		for name, prop := range schema.Properties {
+			if field, ok := buildContactField(name, prop, nil, required[name]); ok {
+				fields = append(fields, field)
+			}
+		}
+	}
 	return fields
 }
 
-func multiControls(raw string) map[string]bool {
-	var root uiElement
-	if err := json.Unmarshal([]byte(raw), &root); err != nil {
-		return map[string]bool{}
+func validatedContactData(form contactForm, values url.Values) (map[string]any, error) {
+	fields := contactFields(form)
+	data := make(map[string]any, len(fields))
+	for _, field := range fields {
+		value, err := contactFieldValue(field, values)
+		if err != nil {
+			return nil, err
+		}
+		if value != nil {
+			data[field.Name] = value
+		}
 	}
-	out := map[string]bool{}
-	walkUI(root, out)
+	return data, nil
+}
+
+func contactFieldValue(field contactField, values url.Values) (any, error) {
+	raw := strings.TrimSpace(values.Get(field.Name))
+	if field.Boolean {
+		checked := raw == "1" || strings.EqualFold(raw, "true") || strings.EqualFold(raw, "on") || strings.EqualFold(raw, "yes")
+		if field.Required && !checked {
+			return nil, fmt.Errorf("%s is required", field.Label)
+		}
+		return checked, nil
+	}
+	if field.Required && raw == "" {
+		return nil, fmt.Errorf("%s is required", field.Label)
+	}
+	if raw == "" {
+		return nil, nil
+	}
+	if len(field.Options) > 0 && !fieldAllowsOption(field, raw) {
+		return nil, fmt.Errorf("%s has an invalid value", field.Label)
+	}
+	switch field.SchemaType {
+	case "integer":
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a whole number", field.Label)
+		}
+		return value, nil
+	case "number":
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a number", field.Label)
+		}
+		return value, nil
+	default:
+		if err := validateStringFormat(field, raw); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
+}
+
+func fieldAllowsOption(field contactField, value string) bool {
+	for _, option := range field.Options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func validateStringFormat(field contactField, value string) error {
+	switch field.Type {
+	case "email":
+		if _, err := mail.ParseAddress(value); err != nil {
+			return fmt.Errorf("%s must be a valid email address", field.Label)
+		}
+	case "url":
+		u, err := url.Parse(value)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("%s must be a valid URL", field.Label)
+		}
+	case "date":
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			return fmt.Errorf("%s must be a valid date", field.Label)
+		}
+	case "datetime-local":
+		if _, err := time.Parse("2006-01-02T15:04", value); err != nil {
+			return fmt.Errorf("%s must be a valid date and time", field.Label)
+		}
+	}
+	return nil
+}
+
+func buildContactField(name string, prop schemaProperty, options map[string]any, required bool) (contactField, bool) {
+	schemaType := strings.TrimSpace(prop.Type)
+	if schemaType == "" {
+		schemaType = "string"
+	}
+	if schemaType != "string" && schemaType != "boolean" && schemaType != "integer" && schemaType != "number" {
+		return contactField{}, false
+	}
+	inputType := "text"
+	step := ""
+	switch schemaType {
+	case "boolean":
+		inputType = "checkbox"
+	case "integer":
+		inputType = "number"
+		step = "1"
+	case "number":
+		inputType = "number"
+		step = "any"
+	}
+	if prop.Format == "email" {
+		inputType = "email"
+	}
+	if prop.Format == "uri" {
+		inputType = "url"
+	}
+	if prop.Format == "date" {
+		inputType = "date"
+	}
+	if prop.Format == "date-time" {
+		inputType = "datetime-local"
+	}
+	if prop.Format == "tel" || prop.Format == "phone" {
+		inputType = "tel"
+	}
+	if optionFormat := stringOption(options, "format"); optionFormat == "password" {
+		inputType = "password"
+	}
+	defaultValue := defaultFieldValue(prop.Default)
+	field := contactField{
+		Name:        name,
+		Label:       fieldLabel(name, prop.Title),
+		Type:        inputType,
+		SchemaType:  schemaType,
+		Default:     defaultValue,
+		Checked:     defaultBoolValue(prop.Default),
+		Boolean:     schemaType == "boolean",
+		Textarea:    boolOption(options, "multi"),
+		Required:    required,
+		Readonly:    boolOption(options, "readonly") || boolOption(options, "readOnly"),
+		Placeholder: stringOption(options, "placeholder"),
+		Help:        prop.Description,
+		Step:        step,
+	}
+	if label, ok := stringLabel(options, "label"); ok {
+		field.Label = label
+	}
+	for _, value := range prop.Enum {
+		label := fmt.Sprint(value)
+		field.Options = append(field.Options, contactFieldOption{Value: label, Label: label, Selected: label == defaultValue})
+	}
+	for _, choice := range append(prop.OneOf, prop.AnyOf...) {
+		if choice.Const == nil {
+			continue
+		}
+		value := fmt.Sprint(choice.Const)
+		label := choice.Title
+		if strings.TrimSpace(label) == "" {
+			label = value
+		}
+		field.Options = append(field.Options, contactFieldOption{Value: value, Label: label, Selected: value == defaultValue})
+	}
+	if len(field.Options) > 0 {
+		field.Select = true
+		field.Textarea = false
+		field.Boolean = false
+		field.Type = "select"
+	}
+	return field, true
+}
+
+func defaultFieldValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func defaultBoolValue(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true") || strings.EqualFold(v, "on") || strings.EqualFold(v, "yes") || v == "1"
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
+func copyOptions(options map[string]any) map[string]any {
+	out := make(map[string]any, len(options)+1)
+	for key, value := range options {
+		out[key] = value
+	}
 	return out
 }
 
-func walkUI(el uiElement, out map[string]bool) {
-	if el.Scope != "" && boolOption(el.Options, "multi") {
-		if name := strings.TrimPrefix(el.Scope, "#/properties/"); name != el.Scope && name != "" {
-			out[name] = true
-		}
+func uiControls(raw string) []uiElement {
+	var root uiElement
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
+		return nil
+	}
+	var out []uiElement
+	walkUI(root, &out)
+	return out
+}
+
+func walkUI(el uiElement, out *[]uiElement) {
+	if propertyName(el.Scope) != "" {
+		*out = append(*out, el)
 	}
 	for _, child := range el.Elements {
 		walkUI(child, out)
 	}
 }
 
+func propertyName(scope string) string {
+	name := strings.TrimPrefix(scope, "#/properties/")
+	if name == scope || name == "" {
+		return ""
+	}
+	return name
+}
+
 func boolOption(options map[string]any, key string) bool {
 	v, _ := options[key].(bool)
 	return v
+}
+
+func stringOption(options map[string]any, key string) string {
+	v, _ := options[key].(string)
+	return strings.TrimSpace(v)
+}
+
+func stringLabel(options map[string]any, key string) (string, bool) {
+	raw, ok := options[key]
+	if !ok {
+		return "", false
+	}
+	switch v := raw.(type) {
+	case string:
+		return strings.TrimSpace(v), strings.TrimSpace(v) != ""
+	case bool:
+		if !v {
+			return "", false
+		}
+	}
+	return "", false
 }
 
 func fieldLabel(name, title string) string {

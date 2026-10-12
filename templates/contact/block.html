@@ -8,12 +8,23 @@
       <input type="hidden" name="return_url" value="{{.ReturnURL}}">
       {{range .Fields}}
       <div class="mb-3 contact-form-field">
-        <label class="form-label" for="contact-{{$.Form.ID}}-{{.Name}}">{{.Label}}</label>
-        {{if .Textarea}}
-        <textarea class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" rows="5" {{if .Required}}required{{end}}></textarea>
+        {{if not .Boolean}}<label class="form-label" for="contact-{{$.Form.ID}}-{{.Name}}">{{.Label}}</label>{{end}}
+        {{if .Select}}
+        <select class="form-control form-select" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" {{if .Required}}required{{end}} {{if .Readonly}}disabled{{end}}>
+          {{if not .Required}}<option value=""></option>{{end}}
+          {{range .Options}}<option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}
+        </select>
+        {{else if .Boolean}}
+        <div class="form-check">
+          <input class="form-check-input" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" type="checkbox" value="true" {{if .Checked}}checked{{end}} {{if .Required}}required{{end}} {{if .Readonly}}disabled{{end}}>
+          <label class="form-check-label" for="contact-{{$.Form.ID}}-{{.Name}}">{{.Label}}</label>
+        </div>
+        {{else if .Textarea}}
+        <textarea class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" rows="5" {{if .Placeholder}}placeholder="{{.Placeholder}}"{{end}} {{if .Required}}required{{end}} {{if .Readonly}}readonly{{end}}>{{.Default}}</textarea>
         {{else}}
-        <input class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" type="{{.Type}}" {{if .Required}}required{{end}}>
+        <input class="form-control" id="contact-{{$.Form.ID}}-{{.Name}}" name="{{.Name}}" type="{{.Type}}" value="{{.Default}}" {{if .Step}}step="{{.Step}}"{{end}} {{if .Placeholder}}placeholder="{{.Placeholder}}"{{end}} {{if .Required}}required{{end}} {{if .Readonly}}readonly{{end}}>
         {{end}}
+        {{if .Help}}<div class="form-text">{{.Help}}</div>{{end}}
       </div>
       {{end}}
       <div class="mb-3 contact-form-captcha">
