@@ -271,6 +271,7 @@ func TestContactFormPageRendersSelectedActiveForm(t *testing.T) {
 	}
 	form := contactForm{
 		Name:         "Support Request",
+		ShowName:     true,
 		Introduction: "Tell us what you need.",
 		MailTo:       "support@example.com",
 		Status:       "active",
@@ -299,6 +300,46 @@ func TestContactFormPageRendersSelectedActiveForm(t *testing.T) {
 		if !strings.Contains(resp.Body, want) {
 			t.Fatalf("expected page body to contain %q, got %q", want, resp.Body)
 		}
+	}
+}
+
+func TestContactFormPageHidesNameWhenDisabled(t *testing.T) {
+	setupExtensionDB(t)
+	server := newServer().Handler()
+	postWire(t, server, "/install", extension.WireRequest{Method: http.MethodPost, URL: "/install", SiteID: "example"})
+
+	db, _, err := extension.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := contactForm{
+		Name:         "Hidden Title Form",
+		ShowName:     false,
+		Introduction: "Still show intro.",
+		MailTo:       "support@example.com",
+		Status:       "active",
+		SchemaJSON:   defaultSchemaJSON(),
+		UISchemaJSON: defaultUISchemaJSON(),
+	}
+	if err := db.Table("contact_forms").Create(&form).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resp := postWire(t, server, "/page/contact-form", extension.WireRequest{
+		Method:   http.MethodGet,
+		URL:      "/contact",
+		SiteID:   "example",
+		PageItem: "contact-form",
+		PageData: map[string]any{"form_id": float64(form.ID)},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected wire status %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	if strings.Contains(resp.Body, "Hidden Title Form") {
+		t.Fatalf("expected form name to be hidden, got %q", resp.Body)
+	}
+	if !strings.Contains(resp.Body, "Still show intro.") {
+		t.Fatalf("expected introduction to remain visible, got %q", resp.Body)
 	}
 }
 
@@ -558,6 +599,7 @@ func TestContactFormBlockRendersActiveForm(t *testing.T) {
 	}
 	form := contactForm{
 		Name:         "Support Request",
+		ShowName:     true,
 		Introduction: "Tell us what you need.",
 		MailTo:       "support@example.com",
 		Status:       "active",
@@ -630,6 +672,7 @@ func TestContactFormBlockWithoutFormIDRendersFirstActiveForm(t *testing.T) {
 	}
 	active := contactForm{
 		Name:         "Primary Contact",
+		ShowName:     true,
 		MailTo:       "hello@example.com",
 		Status:       "active",
 		SchemaJSON:   defaultSchemaJSON(),
@@ -683,6 +726,7 @@ func TestAdminListCreateAndDelete(t *testing.T) {
 	form.Set("mail_to", "hello@example.com")
 	form.Set("introduction", "Send us a note.")
 	form.Set("status", "active")
+	form.Set("show_name", "1")
 	form.Set("schema_json", defaultSchemaJSON())
 	form.Set("ui_schema_json", defaultUISchemaJSON())
 	created := postWire(t, server, "/admin/new", adminWireWithBody(http.MethodPost, adminURL("/new"), form.Encode()))
@@ -706,6 +750,9 @@ func TestAdminListCreateAndDelete(t *testing.T) {
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 form row, got %d", len(rows))
+	}
+	if !rows[0].ShowName {
+		t.Fatal("expected show_name to be saved as true")
 	}
 
 	deleted := postWire(t, server, fmt.Sprintf("/admin/%d/delete", rows[0].ID), adminWire(http.MethodPost, adminURL(fmt.Sprintf("/%d/delete", rows[0].ID))))
@@ -932,6 +979,45 @@ func TestMissingHelpArticle(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status %d, got %d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestMigrateTablesAddsShowNameOnExistingSQLiteTable(t *testing.T) {
+	setupExtensionDB(t)
+	db, _, err := extension.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := &contactApp{info: extension.Info{Name: extensionName}, settingsTable: "contact_settings"}
+	if err := db.Exec(`CREATE TABLE contact_forms (
+		form_id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		introduction TEXT,
+		mail_to TEXT NOT NULL,
+		schema_json TEXT NOT NULL,
+		ui_schema_json TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		created_at DATETIME,
+		updated_at DATETIME
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO contact_forms (name, mail_to, schema_json, ui_schema_json, status)
+		VALUES ('Legacy', 'a@example.com', '{}', '{}', 'active')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := app.migrateTables(db); err != nil {
+		t.Fatalf("migrateTables: %v", err)
+	}
+	if !sqliteColumnExists(db, "contact_forms", "show_name") {
+		t.Fatal("expected show_name column after migrate")
+	}
+	var showName bool
+	if err := db.Raw(`SELECT show_name FROM contact_forms WHERE name = ?`, "Legacy").Scan(&showName).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !showName {
+		t.Fatal("expected existing rows to default show_name = true")
 	}
 }
 

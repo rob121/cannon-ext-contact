@@ -28,7 +28,7 @@ const (
 	extensionName        = "cannon-ext-contact"
 	extensionTitle       = "Contact Forms"
 	extensionDescription = "Adds configurable contact forms with JSON Forms schemas, page and block rendering, saved submissions, and optional Shoutrrr notifications."
-	extensionVersion     = "0.1.1"
+	extensionVersion     = "0.1.2"
 	updateURLBase        = "https://github.com/rob121/cannon-ext-contact/releases/download"
 	defaultAdminMenu     = "Contact Forms"
 	pageSize             = 10
@@ -65,6 +65,7 @@ type contactApp struct {
 type contactForm struct {
 	ID           uint      `gorm:"primaryKey;column:form_id"`
 	Name         string    `gorm:"column:name;size:160;not null"`
+	ShowName     bool      `gorm:"column:show_name;not null"`
 	Introduction string    `gorm:"column:introduction;type:text"`
 	MailTo       string    `gorm:"column:mail_to;size:320;not null"`
 	SchemaJSON   string    `gorm:"column:schema_json;type:text;not null"`
@@ -202,10 +203,36 @@ func (app *contactApp) install(req extension.WireRequest) error {
 	if err := extension.MigrateConfigurationStore(db, app.settingsTable); err != nil {
 		return err
 	}
-	if err := db.Table(app.formsTable()).AutoMigrate(&contactForm{}); err != nil {
+	if err := app.migrateTables(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (app *contactApp) migrateTables(db *gorm.DB) error {
+	table := app.formsTable()
+	if db.Migrator().HasTable(table) && !sqliteColumnExists(db, table, "show_name") {
+		// SQLite rejects ADD COLUMN … NOT NULL without DEFAULT when rows already exist.
+		quoted := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
+		if err := db.Exec(`ALTER TABLE ` + quoted + ` ADD COLUMN show_name INTEGER NOT NULL DEFAULT 1`).Error; err != nil {
+			return err
+		}
+	}
+	if err := db.Table(table).AutoMigrate(&contactForm{}); err != nil {
 		return err
 	}
 	return db.Table(app.entriesTable()).AutoMigrate(&contactEntry{})
+}
+
+func sqliteColumnExists(db *gorm.DB, table, column string) bool {
+	var count int64
+	// Works on SQLite; for other drivers fall back to Migrator after AutoMigrate would have run.
+	err := db.Raw(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&count).Error
+	if err == nil {
+		return count > 0
+	}
+	type colModel struct{}
+	return db.Table(table).Migrator().HasColumn(&contactForm{}, "ShowName")
 }
 
 func (app *contactApp) pageDefinitions() ([]extension.PageDefinition, error) {
@@ -400,6 +427,9 @@ func (app *contactApp) admin(req extension.WireRequest) extension.WireResponse {
 	if err != nil {
 		return extension.Error(http.StatusInternalServerError, err.Error())
 	}
+	if err := app.migrateTables(db); err != nil {
+		return extension.Error(http.StatusInternalServerError, err.Error())
+	}
 
 	adminURL, err := parseWireURL(req.URL)
 	if err != nil {
@@ -419,6 +449,7 @@ func (app *contactApp) admin(req extension.WireRequest) extension.WireResponse {
 		}
 		return app.renderForm(basePath, contactForm{
 			Status:       "active",
+			ShowName:     true,
 			SchemaJSON:   defaultSchemaJSON(),
 			UISchemaJSON: defaultUISchemaJSON(),
 		}, true, "", csrfField(req))
@@ -652,9 +683,11 @@ func formFromBody(body string, id uint) (contactForm, string) {
 	if err != nil {
 		return contactForm{}, err.Error()
 	}
+	showName := values.Get("show_name")
 	row := contactForm{
 		ID:           id,
 		Name:         strings.TrimSpace(values.Get("name")),
+		ShowName:     showName == "1" || strings.EqualFold(showName, "on") || strings.EqualFold(showName, "true") || strings.EqualFold(showName, "yes"),
 		Introduction: strings.TrimSpace(values.Get("introduction")),
 		MailTo:       strings.TrimSpace(values.Get("mail_to")),
 		SchemaJSON:   strings.TrimSpace(values.Get("schema_json")),

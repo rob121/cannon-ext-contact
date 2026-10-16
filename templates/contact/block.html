@@ -1,6 +1,6 @@
 <section class="contact-block card" data-contact-form-id="{{.Form.ID}}" data-contact-block-space="{{.Space}}">
   <div class="card-body">
-    <h2 class="card-title h4 mb-3">{{.Form.Name}}</h2>
+    {{if .Form.ShowName}}<h2 class="card-title h4 mb-3">{{.Form.Name}}</h2>{{end}}
     {{if .Form.Introduction}}<p class="card-text text-muted mb-4">{{.Form.Introduction}}</p>{{end}}
     <form method="post" action="{{.ActionURL}}" class="contact-form">
       {{.CSRFField}}

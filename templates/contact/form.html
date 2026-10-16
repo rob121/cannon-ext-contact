@@ -1,7 +1,7 @@
 <section class="contact-page py-4 w-100" data-contact-form-id="{{.Form.ID}}">
   <div class="card">
     <div class="card-body p-4">
-      <h1 class="card-title h3 mb-3">{{.Form.Name}}</h1>
+      {{if .Form.ShowName}}<h1 class="card-title h3 mb-3">{{.Form.Name}}</h1>{{end}}
       {{if .Form.Introduction}}<p class="card-text text-muted mb-4">{{.Form.Introduction}}</p>{{end}}
       <form method="post" action="{{.ActionURL}}" class="contact-form">
         {{.CSRFField}}
