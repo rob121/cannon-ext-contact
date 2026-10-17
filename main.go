@@ -268,7 +268,8 @@ func (app *contactApp) page(item string, req extension.WireRequest) extension.Wi
 		"Form":      form,
 		"Fields":    contactFields(form),
 		"ActionURL": extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
-		"ReturnURL": req.URL,
+		"ReturnURL": contactReturnURL(req.URL),
+		"Sent":      contactSent(req.URL),
 		"CSRFField": csrfField(req),
 		"PageItem":  item,
 		"BlockItem": "",
@@ -332,7 +333,8 @@ func (app *contactApp) block(item string, req extension.WireRequest) extension.W
 		"Form":      form,
 		"Fields":    contactFields(form),
 		"ActionURL": extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
-		"ReturnURL": req.URL,
+		"ReturnURL": contactReturnURL(req.URL),
+		"Sent":      contactSent(req.URL),
 		"CSRFField": csrfField(req),
 		"Space":     extension.BlockSpace(req),
 		"BlockItem": item,
@@ -675,6 +677,29 @@ func contactSubmitRedirect(rawURL string) string {
 	q.Set("sent", "1")
 	u.RawQuery = q.Encode()
 	u.Path = path
+	return u.String()
+}
+
+func contactSent(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(u.Query().Get("sent")) == "1"
+}
+
+// contactReturnURL strips success flags so a later submit does not reuse them as the base return URL.
+func contactReturnURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || strings.TrimSpace(u.Path) == "" {
+		return "/"
+	}
+	q := u.Query()
+	q.Del("sent")
+	u.RawQuery = q.Encode()
+	if u.Path == "" {
+		u.Path = "/"
+	}
 	return u.String()
 }
 
