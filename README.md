@@ -50,7 +50,7 @@ The extension ships with templates under `templates/contact`. Cannon can list th
 The extension reports:
 
 - Name: `cannon-ext-contact`
-- Version: `0.1.0`
+- Version: `0.2.1`
 - Update URL base: `https://github.com/rob121/cannon-ext-contact/releases/download`
 
 GitHub releases should include a `cannon-extension.json` manifest plus platform binaries.

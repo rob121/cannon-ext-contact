@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containrrr/shoutrrr"
@@ -28,7 +29,7 @@ const (
 	extensionName        = "cannon-ext-contact"
 	extensionTitle       = "Contact Forms"
 	extensionDescription = "Adds configurable contact forms with JSON Forms schemas, page and block rendering, saved submissions, and optional Shoutrrr notifications."
-	extensionVersion     = "0.2.0"
+	extensionVersion     = "0.2.1"
 	updateURLBase        = "https://github.com/rob121/cannon-ext-contact/releases/download"
 	defaultAdminMenu     = "Contact Forms"
 	pageSize             = 10
@@ -60,6 +61,16 @@ type contactApp struct {
 	info          extension.Info
 	templates     *extension.Templates
 	settingsTable string
+
+	dbMu sync.Mutex
+	db   *gorm.DB
+
+	migrateMu sync.Mutex
+	migrated  bool
+
+	settingsMu     sync.RWMutex
+	settingsCache  contactSettings
+	settingsCached bool
 }
 
 type contactForm struct {
@@ -172,7 +183,7 @@ func newServer() *extension.Server {
 			Schema:   contactConfigSchema,
 			UISchema: contactConfigUI,
 		},
-	}, configStore{table: app.settingsTable}))
+	}, configStore{table: app.settingsTable, app: app}))
 	s.RegisterPage(extension.PageDefinition{
 		ID:    "contact-form",
 		Title: "Contact Form",
@@ -196,9 +207,35 @@ func newServer() *extension.Server {
 }
 
 func (app *contactApp) install(req extension.WireRequest) error {
+	_, err := app.siteDB()
+	return err
+}
+
+func (app *contactApp) siteDB() (*gorm.DB, error) {
+	app.dbMu.Lock()
+	if app.db != nil {
+		db := app.db
+		app.dbMu.Unlock()
+		return db, nil
+	}
 	db, _, err := extension.OpenDB()
 	if err != nil {
-		return err
+		app.dbMu.Unlock()
+		return nil, err
+	}
+	app.db = db
+	app.dbMu.Unlock()
+	if err := app.ensureSchema(db); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+func (app *contactApp) ensureSchema(db *gorm.DB) error {
+	app.migrateMu.Lock()
+	defer app.migrateMu.Unlock()
+	if app.migrated {
+		return nil
 	}
 	if err := extension.MigrateConfigurationStore(db, app.settingsTable); err != nil {
 		return err
@@ -206,6 +243,7 @@ func (app *contactApp) install(req extension.WireRequest) error {
 	if err := app.migrateTables(db); err != nil {
 		return err
 	}
+	app.migrated = true
 	return nil
 }
 
@@ -297,7 +335,7 @@ func (app *contactApp) blockDefinitions() ([]extension.BlockDefinition, error) {
 }
 
 func (app *contactApp) activeFormOptions() []extension.BlockFieldOption {
-	db, _, err := extension.OpenDB()
+	db, err := app.siteDB()
 	if err != nil {
 		return nil
 	}
@@ -372,7 +410,7 @@ func (app *contactApp) submit(item string, req extension.WireRequest) extension.
 		return extension.Error(http.StatusInternalServerError, err.Error())
 	}
 
-	db, _, err := extension.OpenDB()
+	db, err := app.siteDB()
 	if err != nil {
 		return extension.Error(http.StatusInternalServerError, err.Error())
 	}
@@ -384,7 +422,7 @@ func (app *contactApp) submit(item string, req extension.WireRequest) extension.
 		return extension.Error(http.StatusInternalServerError, err.Error())
 	}
 
-	settings, err := loadContactSettings()
+	settings, err := app.loadSettings()
 	if err == nil && settings.ShoutrrrURL != "" {
 		if err := sendContactNotification(settings, form, entry); err != nil {
 			return extension.Error(http.StatusInternalServerError, err.Error())
@@ -399,7 +437,7 @@ func (app *contactApp) submit(item string, req extension.WireRequest) extension.
 }
 
 func (app *contactApp) activeForm(formID int, requireID bool) (contactForm, bool, error) {
-	db, _, err := extension.OpenDB()
+	db, err := app.siteDB()
 	if err != nil {
 		return contactForm{}, false, err
 	}
@@ -425,11 +463,8 @@ func (app *contactApp) admin(req extension.WireRequest) extension.WireResponse {
 		return extension.Error(http.StatusForbidden, "sign in required")
 	}
 
-	db, _, err := extension.OpenDB()
+	db, err := app.siteDB()
 	if err != nil {
-		return extension.Error(http.StatusInternalServerError, err.Error())
-	}
-	if err := app.migrateTables(db); err != nil {
 		return extension.Error(http.StatusInternalServerError, err.Error())
 	}
 
@@ -618,30 +653,74 @@ func (app *contactApp) entriesTable() string {
 
 type configStore struct {
 	table string
+	app   *contactApp
 }
 
 func (s configStore) Load(section string) (map[string]any, error) {
-	db, _, err := extension.OpenDB()
-	if err != nil {
-		return nil, err
+	var db *gorm.DB
+	var err error
+	if s.app != nil {
+		db, err = s.app.siteDB()
+	} else {
+		db, _, err = extension.OpenDB()
 	}
-	if err := extension.MigrateConfigurationStore(db, s.table); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	return extension.DBConfigurationStore(db, s.table).Load(section)
 }
 
 func (s configStore) Save(section string, data map[string]any) error {
-	db, _, err := extension.OpenDB()
+	var db *gorm.DB
+	var err error
+	if s.app != nil {
+		db, err = s.app.siteDB()
+	} else {
+		db, _, err = extension.OpenDB()
+	}
 	if err != nil {
 		return err
 	}
-	if err := extension.MigrateConfigurationStore(db, s.table); err != nil {
+	if err := extension.DBConfigurationStore(db, s.table).Save(section, data); err != nil {
 		return err
 	}
-	return extension.DBConfigurationStore(db, s.table).Save(section, data)
+	if s.app != nil {
+		s.app.invalidateSettings()
+	}
+	return nil
 }
 
+func (app *contactApp) loadSettings() (contactSettings, error) {
+	app.settingsMu.RLock()
+	if app.settingsCached {
+		cfg := app.settingsCache
+		app.settingsMu.RUnlock()
+		return cfg, nil
+	}
+	app.settingsMu.RUnlock()
+
+	data, err := (configStore{table: app.settingsTable, app: app}).Load("general")
+	if err != nil {
+		return contactSettings{}, err
+	}
+	cfg := contactSettings{
+		ShoutrrrURL: strings.TrimSpace(stringValue(data, "shoutrrr_url")),
+	}
+	app.settingsMu.Lock()
+	app.settingsCache = cfg
+	app.settingsCached = true
+	app.settingsMu.Unlock()
+	return cfg, nil
+}
+
+func (app *contactApp) invalidateSettings() {
+	app.settingsMu.Lock()
+	app.settingsCached = false
+	app.settingsCache = contactSettings{}
+	app.settingsMu.Unlock()
+}
+
+// loadContactSettings loads settings from the DB (tests / one-off reads).
 func loadContactSettings() (contactSettings, error) {
 	store := configStore{table: extension.TableName(extension.Info{Name: extensionName}.TablePrefix(), "settings")}
 	data, err := store.Load("general")
