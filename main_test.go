@@ -90,6 +90,7 @@ func TestTemplatesListOverridablePaths(t *testing.T) {
 		"contact/admin_list.html": "extension/contact/admin_list.html",
 		"contact/block.html":      "extension/contact/block.html",
 		"contact/form.html":       "extension/contact/form.html",
+		"contact/submission.html": "extension/contact/submission.html",
 	}
 	if len(got.Templates) != len(want) {
 		t.Fatalf("expected %d templates, got %#v", len(want), got.Templates)
@@ -724,6 +725,7 @@ func TestAdminListCreateAndDelete(t *testing.T) {
 	form := url.Values{}
 	form.Set("name", "General Contact")
 	form.Set("mail_to", "hello@example.com")
+	form.Set("subject", "Message from {{.name}}")
 	form.Set("introduction", "Send us a note.")
 	form.Set("status", "active")
 	form.Set("show_name", "1")
@@ -753,6 +755,9 @@ func TestAdminListCreateAndDelete(t *testing.T) {
 	}
 	if !rows[0].ShowName {
 		t.Fatal("expected show_name to be saved as true")
+	}
+	if rows[0].Subject != "Message from {{.name}}" {
+		t.Fatalf("subject = %q", rows[0].Subject)
 	}
 
 	deleted := postWire(t, server, fmt.Sprintf("/admin/%d/delete", rows[0].ID), adminWire(http.MethodPost, adminURL(fmt.Sprintf("/%d/delete", rows[0].ID))))
@@ -1011,6 +1016,9 @@ func TestMigrateTablesAddsShowNameOnExistingSQLiteTable(t *testing.T) {
 	}
 	if !sqliteColumnExists(db, "contact_forms", "show_name") {
 		t.Fatal("expected show_name column after migrate")
+	}
+	if !sqliteColumnExists(db, "contact_forms", "subject") {
+		t.Fatal("expected subject column after migrate")
 	}
 	var showName bool
 	if err := db.Raw(`SELECT show_name FROM contact_forms WHERE name = ?`, "Legacy").Scan(&showName).Error; err != nil {

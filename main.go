@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containrrr/shoutrrr"
 	"github.com/rob121/cannon/extension"
 	"gorm.io/gorm"
 )
@@ -79,6 +78,7 @@ type contactForm struct {
 	ShowName     bool      `gorm:"column:show_name;not null"`
 	Introduction string    `gorm:"column:introduction;type:text"`
 	MailTo       string    `gorm:"column:mail_to;size:320;not null"`
+	Subject      string    `gorm:"column:subject;size:512"`
 	SchemaJSON   string    `gorm:"column:schema_json;type:text;not null"`
 	UISchemaJSON string    `gorm:"column:ui_schema_json;type:text;not null"`
 	Status       string    `gorm:"column:status;size:16;not null;default:active"`
@@ -256,6 +256,12 @@ func (app *contactApp) migrateTables(db *gorm.DB) error {
 			return err
 		}
 	}
+	if db.Migrator().HasTable(table) && !sqliteColumnExists(db, table, "subject") {
+		quoted := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
+		if err := db.Exec(`ALTER TABLE ` + quoted + ` ADD COLUMN subject TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+			return err
+		}
+	}
 	if err := db.Table(table).AutoMigrate(&contactForm{}); err != nil {
 		return err
 	}
@@ -424,9 +430,7 @@ func (app *contactApp) submit(item string, req extension.WireRequest) extension.
 
 	settings, err := app.loadSettings()
 	if err == nil && settings.ShoutrrrURL != "" {
-		if err := sendContactNotification(settings, form, entry); err != nil {
-			return extension.Error(http.StatusInternalServerError, err.Error())
-		}
+		go app.notifySubmission(settings, form, entry)
 	}
 
 	redirectURL := strings.TrimSpace(values.Get("return_url"))
@@ -732,14 +736,6 @@ func loadContactSettings() (contactSettings, error) {
 	}, nil
 }
 
-func sendContactNotification(settings contactSettings, form contactForm, entry contactEntry) error {
-	if settings.ShoutrrrURL == "" {
-		return fmt.Errorf("shoutrrr_url is not configured")
-	}
-	message := fmt.Sprintf("New contact form submission for %s\n\n%s", form.Name, entry.DataJSON)
-	return shoutrrr.Send(settings.ShoutrrrURL, message)
-}
-
 func contactSubmitRedirect(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil || strings.TrimSpace(u.Path) == "" {
@@ -794,6 +790,7 @@ func formFromBody(body string, id uint) (contactForm, string) {
 		ShowName:     showName == "1" || strings.EqualFold(showName, "on") || strings.EqualFold(showName, "true") || strings.EqualFold(showName, "yes"),
 		Introduction: strings.TrimSpace(values.Get("introduction")),
 		MailTo:       strings.TrimSpace(values.Get("mail_to")),
+		Subject:      strings.TrimSpace(values.Get("subject")),
 		SchemaJSON:   strings.TrimSpace(values.Get("schema_json")),
 		UISchemaJSON: strings.TrimSpace(values.Get("ui_schema_json")),
 		Status:       strings.TrimSpace(values.Get("status")),
@@ -806,6 +803,9 @@ func formFromBody(body string, id uint) (contactForm, string) {
 	}
 	if row.MailTo == "" {
 		return row, "Mail To is required."
+	}
+	if msg := validateSubjectTemplate(row.Subject); msg != "" {
+		return row, msg
 	}
 	if row.SchemaJSON == "" {
 		row.SchemaJSON = defaultSchemaJSON()

@@ -19,6 +19,11 @@
           <input class="admin-form-control" type="email" name="mail_to" value="{{.Row.MailTo}}" required>
           <p class="admin-form-help">Submissions will be delivered to this address.</p>
         </div>
+        <div class="col-12">
+          <label class="admin-form-label" for="contact-subject">Subject</label>
+          <input class="admin-form-control" id="contact-subject" name="subject" value="{{.Row.Subject}}" placeholder="Contact from {{ "{{.name}}" }}">
+          <p class="admin-form-help">Notification subject. Use <code class="admin-code">{{"{{.email}}"}}</code> to insert the submitted value of a JSON schema property. Leave blank for the default subject.</p>
+        </div>
         <div class="col-md-4">
           <label class="admin-form-label">Status</label>
           <select class="admin-form-control" name="status">
