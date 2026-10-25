@@ -40,8 +40,11 @@
           <p class="admin-form-help">When unchecked, the form name heading is hidden on page and block views.</p>
         </div>
         <div class="col-md-12">
-          <label class="admin-form-label">Introduction</label>
-          <textarea class="admin-form-control" name="introduction" rows="4">{{.Row.Introduction}}</textarea>
+          <label class="admin-form-label" for="contact-introduction">Introduction</label>
+          <div class="admin-richtext-field admin-richtext-intro">
+            <textarea class="admin-form-control" id="contact-introduction" name="introduction" rows="6" data-ckeditor="intro">{{.Row.Introduction}}</textarea>
+          </div>
+          <p class="admin-form-help">Shown above the public form. Formatting is kept on the site.</p>
         </div>
         <div class="col-md-12"><div class="admin-form-divider"></div></div>
         <div class="col-md-12">

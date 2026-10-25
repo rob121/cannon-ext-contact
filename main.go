@@ -28,7 +28,7 @@ const (
 	extensionName        = "cannon-ext-contact"
 	extensionTitle       = "Contact Forms"
 	extensionDescription = "Adds configurable contact forms with JSON Forms schemas, page and block rendering, saved submissions, and optional Shoutrrr notifications."
-	extensionVersion     = "0.2.1"
+	extensionVersion     = "0.2.3"
 	updateURLBase        = "https://github.com/rob121/cannon-ext-contact/releases/download"
 	defaultAdminMenu     = "Contact Forms"
 	pageSize             = 10
@@ -309,14 +309,15 @@ func (app *contactApp) page(item string, req extension.WireRequest) extension.Wi
 	}
 
 	return app.render("contact/form.html", map[string]any{
-		"Form":      form,
-		"Fields":    contactFields(form),
-		"ActionURL": extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
-		"ReturnURL": contactReturnURL(req.URL),
-		"Sent":      contactSent(req.URL),
-		"CSRFField": csrfField(req),
-		"PageItem":  item,
-		"BlockItem": "",
+		"Form":             form,
+		"IntroductionHTML": introductionHTML(form.Introduction),
+		"Fields":           contactFields(form),
+		"ActionURL":        extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
+		"ReturnURL":        contactReturnURL(req.URL),
+		"Sent":             contactSent(req.URL),
+		"CSRFField":        csrfField(req),
+		"PageItem":         item,
+		"BlockItem":        "",
 	})
 }
 
@@ -374,14 +375,15 @@ func (app *contactApp) block(item string, req extension.WireRequest) extension.W
 	}
 
 	return app.render("contact/block.html", map[string]any{
-		"Form":      form,
-		"Fields":    contactFields(form),
-		"ActionURL": extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
-		"ReturnURL": contactReturnURL(req.URL),
-		"Sent":      contactSent(req.URL),
-		"CSRFField": csrfField(req),
-		"Space":     extension.BlockSpace(req),
-		"BlockItem": item,
+		"Form":             form,
+		"IntroductionHTML": introductionHTML(form.Introduction),
+		"Fields":           contactFields(form),
+		"ActionURL":        extension.PublicDataURL(extensionName, req.SiteID, "contact/submit"),
+		"ReturnURL":        contactReturnURL(req.URL),
+		"Sent":             contactSent(req.URL),
+		"CSRFField":        csrfField(req),
+		"Space":            extension.BlockSpace(req),
+		"BlockItem":        item,
 	})
 }
 
@@ -632,6 +634,10 @@ func (app *contactApp) renderForm(basePath string, row contactForm, isNew bool, 
 
 func csrfField(req extension.WireRequest) template.HTML {
 	return template.HTML(extension.CSRFHiddenField(req))
+}
+
+func introductionHTML(src string) template.HTML {
+	return template.HTML(strings.TrimSpace(src))
 }
 
 func (app *contactApp) render(name string, data map[string]any) extension.WireResponse {

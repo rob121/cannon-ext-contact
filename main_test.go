@@ -344,6 +344,50 @@ func TestContactFormPageHidesNameWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestContactIntroductionRendersHTML(t *testing.T) {
+	setupExtensionDB(t)
+	server := newServer().Handler()
+	postWire(t, server, "/install", extension.WireRequest{Method: http.MethodPost, URL: "/install", SiteID: "example"})
+
+	db, _, err := extension.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := contactForm{
+		Name:         "HTML Intro",
+		ShowName:     true,
+		Introduction: "<p>Write us at <strong>camp@example.com</strong>.</p>",
+		MailTo:       "support@example.com",
+		Status:       "active",
+		SchemaJSON:   defaultSchemaJSON(),
+		UISchemaJSON: defaultUISchemaJSON(),
+	}
+	if err := db.Table("contact_forms").Create(&form).Error; err != nil {
+		t.Fatal(err)
+	}
+	resp := postWire(t, server, "/page/contact-form", extension.WireRequest{
+		Method:   http.MethodGet,
+		URL:      "/contact",
+		SiteID:   "example",
+		PageItem: "contact-form",
+		PageData: map[string]any{"form_id": float64(form.ID)},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("page status %d: %s", resp.StatusCode, resp.Body)
+	}
+	if strings.Contains(resp.Body, "&lt;strong&gt;") || !strings.Contains(resp.Body, "<strong>camp@example.com</strong>") {
+		t.Fatalf("introduction HTML was escaped: %s", resp.Body)
+	}
+	if !strings.Contains(resp.Body, `class="contact-intro`) {
+		t.Fatalf("introduction wrapper missing: %s", resp.Body)
+	}
+
+	editor := postWire(t, server, "/admin/", adminWire(http.MethodGet, adminURL("/new")))
+	if !strings.Contains(editor.Body, `data-ckeditor="intro"`) || !strings.Contains(editor.Body, `id="contact-introduction"`) {
+		t.Fatalf("admin introduction editor missing: %s", editor.Body)
+	}
+}
+
 func TestEndpointList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/endpoint", nil)
 	rec := httptest.NewRecorder()

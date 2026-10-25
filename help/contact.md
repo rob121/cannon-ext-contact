@@ -7,7 +7,7 @@ Use the extension admin page to add, edit, activate, deactivate, or delete conta
 Each contact form stores:
 
 - Form name
-- Introduction text
+- Introduction, edited with the visual editor and shown as HTML above the public form
 - Mail To address
 - Active or inactive status
 - JSON Forms data schema

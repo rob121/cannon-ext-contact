@@ -2,7 +2,7 @@
   <div class="card">
     <div class="card-body p-4">
       {{if .Form.ShowName}}<h1 class="card-title h3 mb-3">{{.Form.Name}}</h1>{{end}}
-      {{if .Form.Introduction}}<p class="card-text text-muted mb-4">{{.Form.Introduction}}</p>{{end}}
+      {{if .IntroductionHTML}}<div class="contact-intro mb-4">{{.IntroductionHTML}}</div>{{end}}
       {{if .Sent}}
       <div class="alert alert-success" role="alert">
         Thank you — your message has been sent successfully.
