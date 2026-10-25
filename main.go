@@ -28,7 +28,7 @@ const (
 	extensionName        = "cannon-ext-contact"
 	extensionTitle       = "Contact Forms"
 	extensionDescription = "Adds configurable contact forms with JSON Forms schemas, page and block rendering, saved submissions, and optional Shoutrrr notifications."
-	extensionVersion     = "0.2.3"
+	extensionVersion     = "0.2.4"
 	updateURLBase        = "https://github.com/rob121/cannon-ext-contact/releases/download"
 	defaultAdminMenu     = "Contact Forms"
 	pageSize             = 10
@@ -113,6 +113,7 @@ type contactField struct {
 	Placeholder string
 	Help        string
 	Step        string
+	GroupLabel  string
 }
 
 type contactFieldOption struct {
@@ -146,9 +147,10 @@ type schemaChoice struct {
 type uiElement struct {
 	Type     string         `json:"type"`
 	Scope    string         `json:"scope"`
-	Label    any            `json:"label"`
-	Options  map[string]any `json:"options"`
-	Elements []uiElement    `json:"elements"`
+	Label      any            `json:"label"`
+	Options    map[string]any `json:"options"`
+	Elements   []uiElement    `json:"elements"`
+	GroupLabel string         `json:"-"`
 }
 
 func main() {
@@ -894,6 +896,7 @@ func contactFields(form contactForm) []contactField {
 	controls := uiControls(form.UISchemaJSON)
 	fields := make([]contactField, 0, len(schema.Properties))
 	seen := map[string]bool{}
+	lastGroup := ""
 	for _, control := range controls {
 		name := propertyName(control.Scope)
 		if name == "" || seen[name] {
@@ -909,6 +912,10 @@ func contactFields(form contactForm) []contactField {
 			options["label"] = control.Label
 		}
 		if field, ok := buildContactField(name, prop, options, required[name]); ok {
+			if control.GroupLabel != "" && control.GroupLabel != lastGroup {
+				field.GroupLabel = control.GroupLabel
+				lastGroup = control.GroupLabel
+			}
 			fields = append(fields, field)
 			seen[name] = true
 		}
@@ -1135,17 +1142,40 @@ func uiControls(raw string) []uiElement {
 		return nil
 	}
 	var out []uiElement
-	walkUI(root, &out)
+	walkUI(root, "", &out)
 	return out
 }
 
-func walkUI(el uiElement, out *[]uiElement) {
+func walkUI(el uiElement, group string, out *[]uiElement) {
+	if labeledLayout(el.Type) {
+		if label := elementLabel(el.Label); label != "" {
+			group = label
+		}
+	}
 	if propertyName(el.Scope) != "" {
+		el.GroupLabel = group
 		*out = append(*out, el)
 	}
 	for _, child := range el.Elements {
-		walkUI(child, out)
+		walkUI(child, group, out)
 	}
+}
+
+func labeledLayout(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "group", "category":
+		return true
+	default:
+		return false
+	}
+}
+
+func elementLabel(label any) string {
+	text, ok := label.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func propertyName(scope string) string {

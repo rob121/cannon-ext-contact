@@ -60,7 +60,7 @@
       <tbody>
         {{range .Rows}}
         <tr>
-          <td><span class="admin-cell-primary">{{.Name}}</span></td>
+          <td><a class="admin-cell-primary" href="{{$.BasePath}}/{{.ID}}" data-turbo-frame="_top">{{.Name}}</a></td>
           <td>{{.MailTo}}</td>
           <td>
             {{if eq .Status "active"}}
@@ -130,6 +130,15 @@
 </div>
 
 <style>
+  .admin-extension-app .admin-table a.admin-cell-primary {
+    color: var(--admin-primary);
+    text-decoration: none;
+  }
+
+  .admin-extension-app .admin-table a.admin-cell-primary:hover {
+    text-decoration: underline;
+  }
+
   .admin-extension-app .contact-extension-header {
     display: flex;
     justify-content: flex-end;

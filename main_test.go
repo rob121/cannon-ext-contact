@@ -779,8 +779,8 @@ func TestAdminListCreateAndDelete(t *testing.T) {
 	if created.StatusCode != http.StatusOK {
 		t.Fatalf("create failed: %+v", created)
 	}
-	if !strings.Contains(created.Body, "General Contact") {
-		t.Fatalf("expected created form in list, got %q", created.Body)
+	if !strings.Contains(created.Body, ">General Contact</a>") {
+		t.Fatalf("expected form name to link to the editor, got %q", created.Body)
 	}
 	if !strings.Contains(created.Body, `name="_csrf" value="admin-token"`) {
 		t.Fatalf("expected admin list delete form to include csrf field, got %q", created.Body)
@@ -884,6 +884,85 @@ func TestContactFieldsUseUISchemaOrderAndStringEnums(t *testing.T) {
 	}
 	if fields[4].Help != "Tell us what you need." {
 		t.Fatalf("message help = %q", fields[4].Help)
+	}
+}
+
+func TestContactFieldsShowGroupLabels(t *testing.T) {
+	form := contactForm{
+		SchemaJSON: `{
+		  "type": "object",
+		  "properties": {
+		    "nominatedBy": {"type": "string"},
+		    "nominatorEmail": {"type": "string"},
+		    "nomineeFirstName": {"type": "string"},
+		    "relationship": {"type": "string"}
+		  }
+		}`,
+		UISchemaJSON: `{
+		  "type": "VerticalLayout",
+		  "elements": [
+		    {
+		      "type": "Group",
+		      "label": "My Information",
+		      "elements": [
+		        {"type": "Control", "scope": "#/properties/nominatedBy"},
+		        {"type": "Control", "scope": "#/properties/nominatorEmail"}
+		      ]
+		    },
+		    {
+		      "type": "Group",
+		      "label": "Nominee Information",
+		      "elements": [
+		        {"type": "Control", "scope": "#/properties/nomineeFirstName"},
+		        {"type": "Control", "scope": "#/properties/relationship"}
+		      ]
+		    }
+		  ]
+		}`,
+	}
+
+	fields := contactFields(form)
+	if len(fields) != 4 {
+		t.Fatalf("fields len = %d, want 4: %#v", len(fields), fields)
+	}
+	if fields[0].GroupLabel != "My Information" || fields[1].GroupLabel != "" {
+		t.Fatalf("first group labels = %q, %q", fields[0].GroupLabel, fields[1].GroupLabel)
+	}
+	if fields[2].GroupLabel != "Nominee Information" || fields[3].GroupLabel != "" {
+		t.Fatalf("second group labels = %q, %q", fields[2].GroupLabel, fields[3].GroupLabel)
+	}
+
+	setupExtensionDB(t)
+	server := newServer().Handler()
+	postWire(t, server, "/install", extension.WireRequest{Method: http.MethodPost, URL: "/install", SiteID: "example"})
+	db, _, err := extension.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	form.Name = "Board Nomination"
+	form.Status = "active"
+	form.MailTo = "board@example.com"
+	if err := db.Table("contact_forms").Create(&form).Error; err != nil {
+		t.Fatal(err)
+	}
+	resp := postWire(t, server, "/page/contact-form", extension.WireRequest{
+		Method:   http.MethodGet,
+		URL:      "/board/nominate",
+		CSRF:     "page-token",
+		SiteID:   "example",
+		PageItem: "contact-form",
+		PageData: map[string]any{"form_id": float64(form.ID)},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected wire status %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	for _, want := range []string{`class="contact-form-group`, "My Information", "Nominee Information", `name="nominatedBy"`} {
+		if !strings.Contains(resp.Body, want) {
+			t.Fatalf("expected page body to contain %q, got %q", want, resp.Body)
+		}
+	}
+	if strings.Count(resp.Body, "My Information") != 1 || strings.Count(resp.Body, "Nominee Information") != 1 {
+		t.Fatalf("expected each group label once, got %q", resp.Body)
 	}
 }
 

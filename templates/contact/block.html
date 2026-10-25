@@ -12,6 +12,7 @@
       <input type="hidden" name="form_id" value="{{.Form.ID}}">
       <input type="hidden" name="return_url" value="{{.ReturnURL}}">
       {{range .Fields}}
+      {{if .GroupLabel}}<h2 class="contact-form-group h5 fw-semibold border-bottom pb-2 mb-3">{{.GroupLabel}}</h2>{{end}}
       <div class="mb-3 contact-form-field">
         {{if not .Boolean}}<label class="form-label" for="contact-{{$.Form.ID}}-{{.Name}}">{{.Label}}</label>{{end}}
         {{if .Select}}

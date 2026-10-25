@@ -17,7 +17,7 @@ Each contact form stores:
 
 The data schema defines the submitted data shape, field types, and required fields.
 
-The UI schema defines layout, controls, labels, and options.
+The UI schema defines layout, controls, labels, and options. A Group label is shown as a heading above the fields in that group.
 
 The default form includes `name`, `email`, and `message` fields.
 
